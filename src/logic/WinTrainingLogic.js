@@ -88,6 +88,77 @@ const hasInvalidTileCount = (hand) => {
     return Object.values(counts).some(count => count > 4);
 };
 
+// Generate a not-tenpai hand for Hard mode
+const generateNotTenpaiHand = (size, suitCount) => {
+    console.log('Generating not-tenpai hand for Hard mode');
+    
+    const activeSuits = SUITS.slice(0, suitCount);
+    const pool = activeSuits.flatMap(s => 
+        [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `${n}${s}`)
+    );
+    
+    // First generate a tenpai hand
+    for (let attempt = 0; attempt < 1000; attempt++) {
+        let hand = Array.from({ length: size }, () => 
+            pool[Math.floor(Math.random() * pool.length)]
+        );
+        
+        if (hasInvalidTileCount(hand)) continue;
+        
+        // For 2+ suits, ensure no tile appears exactly 4 times
+        if (suitCount >= 2) {
+            const counts = {};
+            hand.forEach(t => counts[t] = (counts[t] || 0) + 1);
+            if (Object.values(counts).some(count => count === 4)) continue;
+        }
+        
+        const waits = getWaits(hand, pool);
+        if (waits.length >= 1 && waits.length <= 4) {
+            // Now modify one tile to make it not-tenpai
+            const randomIndex = Math.floor(Math.random() * hand.length);
+            const originalTile = hand[randomIndex];
+            const tileNum = parseInt(originalTile[0]);
+            const tileSuit = originalTile[1];
+            
+            // Generate offset (-2, -1, +1, or +2)
+            const offsets = [-2, -1, 1, 2];
+            const offset = offsets[Math.floor(Math.random() * offsets.length)];
+            const newNum = Math.max(1, Math.min(9, tileNum + offset));
+            const newTile = `${newNum}${tileSuit}`;
+            
+            // Only proceed if the new tile is different
+            if (newTile !== originalTile) {
+                hand[randomIndex] = newTile;
+                
+                // Check if it's invalid tile count after modification
+                if (hasInvalidTileCount(hand)) continue;
+                
+                // For 2+ suits, ensure no tile appears exactly 4 times after modification
+                if (suitCount >= 2) {
+                    const counts = {};
+                    hand.forEach(t => counts[t] = (counts[t] || 0) + 1);
+                    if (Object.values(counts).some(count => count === 4)) continue;
+                }
+                
+                // Verify it's actually not tenpai now
+                const newWaits = getWaits(hand, pool);
+                if (newWaits.length === 0) {
+                    console.log(`Generated not-tenpai hand on attempt ${attempt + 1}`);
+                    return { 
+                        hand: sortTiles(hand), 
+                        waits: newWaits,
+                        isTenpai: false,
+                        pool 
+                    };
+                }
+            }
+        }
+    }
+    
+    console.warn('Failed to generate not-tenpai hand, falling back to regular generation');
+    return null;
+};
+
 // Generate a training hand with specified parameters
 export const generateRehabHand = (size, level, suitCount) => {
     console.time('generateRehabHand');
@@ -97,13 +168,32 @@ export const generateRehabHand = (size, level, suitCount) => {
         [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `${n}${s}`)
     );
     
-    // Define wait count ranges for each difficulty level
-    const waitRanges = {
-        'Easy': [1, 2],
-        'Medium': [2, 3],
-        'Hard': [4, 15]
+    // For Hard mode: 10% chance to generate not-tenpai hand
+    if (level === 'Hard' && Math.random() < 0.1) {
+        const notTenpaiResult = generateNotTenpaiHand(size, suitCount);
+        if (notTenpaiResult) {
+            console.timeEnd('generateRehabHand');
+            return notTenpaiResult;
+        }
+    }
+    
+    // Define wait count requirements for each difficulty level
+    const waitRequirements = {
+        'Easy': { 
+            lowWaitPercentage: 85,  // 85% have ≤3 waits
+            maxLowWaits: 3 
+        },
+        'Medium': { 
+            highWaitPercentage: 60, // 60% have ≥3 waits
+            minHighWaits: 3 
+        },
+        'Hard': { 
+            highWaitPercentage: 80, // 80% have ≥3 waits
+            minHighWaits: 3
+        }
     };
-    const [minWaits, maxWaits] = waitRanges[level];
+    
+    const requirements = waitRequirements[level];
     
     // Try to generate a valid hand (with timeout)
     for (let attempt = 0; attempt < 3000; attempt++) {
@@ -127,12 +217,42 @@ export const generateRehabHand = (size, level, suitCount) => {
         let waits = getWaits(hand, pool);
         console.timeEnd('getWaits');
         
-        if (waits.length >= minWaits && waits.length <= maxWaits) {
-            console.log(`Generated hand on attempt ${attempt + 1} with ${waits.length} waits`);
+        // Apply difficulty-specific wait requirements
+        let meetsRequirement = false;
+        
+        if (level === 'Easy') {
+            // 85% should have ≤3 waits
+            const shouldBeLowWait = Math.random() < (requirements.lowWaitPercentage / 100);
+            if (shouldBeLowWait) {
+                meetsRequirement = waits.length >= 1 && waits.length <= requirements.maxLowWaits;
+            } else {
+                meetsRequirement = waits.length > requirements.maxLowWaits && waits.length <= 15;
+            }
+        } else if (level === 'Medium') {
+            // 60% should have ≥3 waits
+            const shouldBeHighWait = Math.random() < (requirements.highWaitPercentage / 100);
+            if (shouldBeHighWait) {
+                meetsRequirement = waits.length >= requirements.minHighWaits && waits.length <= 15;
+            } else {
+                meetsRequirement = waits.length >= 1 && waits.length < requirements.minHighWaits;
+            }
+        } else { // Hard
+            // 80% should have ≥3 waits
+            const shouldBeHighWait = Math.random() < (requirements.highWaitPercentage / 100);
+            if (shouldBeHighWait) {
+                meetsRequirement = waits.length >= requirements.minHighWaits && waits.length <= 15;
+            } else {
+                meetsRequirement = waits.length >= 1 && waits.length < requirements.minHighWaits;
+            }
+        }
+        
+        if (meetsRequirement) {
+            console.log(`Generated hand on attempt ${attempt + 1} with ${waits.length} waits (${level} mode)`);
             console.timeEnd('generateRehabHand');
             return { 
                 hand: sortTiles(hand), 
                 waits, 
+                isTenpai: true,
                 pool 
             };
         }
@@ -144,6 +264,7 @@ export const generateRehabHand = (size, level, suitCount) => {
     return { 
         hand: sortTiles(['1s','1s','1s','2s','3s','4s','5s']), 
         waits: ['2s','5s','8s'], 
+        isTenpai: true,
         pool 
     };
 };
