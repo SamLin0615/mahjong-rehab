@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { generateRehabHand, generateEfficiencyHand, ALL_TILES, sortTiles, testShanten } from './logic/MahjongBrain';
+
+// Import from logic modules
+import { 
+    generateRehabHand, 
+    sortTiles, 
+    getAllTiles 
+} from './logic/WinTrainingLogic.js';
+
+import { 
+    generateEfficiencyHand, 
+    testShanten 
+} from './logic/EfficiencyTrainingLogic.js';
 
 // Unicode Mahjong Tile Mapping
 const TILE_UNICODE = {
@@ -12,10 +23,10 @@ const TILE_UNICODE = {
 };
 
 const tileStyle = {
-    width: '50px', height: '70px', border: '2px solid #333',
+    width: '50px', height: '70px',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    borderRadius: '6px', margin: '3px', fontWeight: 'normal', backgroundColor: '#fff',
-    cursor: 'pointer', fontSize: '42px', boxShadow: '2px 2px 4px rgba(0,0,0,0.2)',
+    fontWeight: 'normal',
+    cursor: 'pointer', fontSize: '42px',
     userSelect: 'none'
 };
 
@@ -84,9 +95,8 @@ export default function App() {
 
             <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginBottom: '20px', background: '#fff', padding: '15px', borderRadius: '8px', flexWrap: 'wrap', maxWidth: '800px', margin: '0 auto 20px' }}>
                 <select value={settings.size} onChange={e => setSettings({...settings, size: parseInt(e.target.value)})} style={{ padding: '8px', fontSize: '14px', borderRadius: '4px', border: '1px solid #ccc' }}>
-                    <option value={7}>7 Tiles (Easy)</option>
-                    <option value={13}>13 Tiles (Medium)</option>
-                    <option value={16}>16 Tiles (Hard)</option>
+                    <option value={7}>7 Tiles</option>
+                    <option value={13}>13 Tiles</option>
                 </select>
                 {mode === 'WIN' && (
                     <select value={settings.level} onChange={e => setSettings({...settings, level: e.target.value})} style={{ padding: '8px', fontSize: '14px', borderRadius: '4px', border: '1px solid #ccc' }}>
@@ -112,15 +122,17 @@ export default function App() {
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '30px', flexWrap: 'wrap', maxWidth: '900px', margin: '0 auto 30px' }}>
                 {gameState.hand.map((tile, i) => {
                     const isDrawnTile = mode === 'EFF' && gameState.drawnTile && tile === gameState.drawnTile && i === gameState.hand.length - 1;
+                    const isWrong = mode === 'EFF' && gameState.wrong.includes(i);
                     return (
                         <div 
                             key={i} 
-                            onClick={() => mode === 'EFF' && handleAction(tile, i)} 
+                            onClick={() => mode === 'EFF' && !isWrong && handleAction(tile, i)} 
                             style={{ 
-                                ...tileStyle, 
-                                backgroundColor: mode === 'EFF' && gameState.wrong.includes(i) ? '#333' : (isDrawnTile ? '#fffacd' : '#fff'), 
-                                color: mode === 'EFF' && gameState.wrong.includes(i) ? '#fff' : '#000',
-                                border: isDrawnTile ? '3px solid #f39c12' : '2px solid #333'
+                                ...tileStyle,
+                                marginRight: isDrawnTile ? '10px' : '0',
+                                cursor: mode === 'EFF' ? (isWrong ? 'not-allowed' : 'pointer') : 'default',
+                                opacity: isWrong ? 0.3 : 1,
+                                filter: isDrawnTile ? 'drop-shadow(0 0 8px #f39c12)' : 'none'
                             }}
                         >
                             {TILE_UNICODE[tile] || tile}
@@ -130,20 +142,35 @@ export default function App() {
             </div>
 
             {mode === 'WIN' && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(55px, 1fr))', gap: '8px', maxWidth: '700px', margin: '0 auto' }}>
-                    {(gameState.pool.length > 0 ? gameState.pool : ALL_TILES.slice(0, 9)).map(tile => (
-                        <div 
-                            key={tile} 
-                            onClick={() => handleAction(tile)} 
-                            style={{ 
-                                ...tileStyle, 
-                                backgroundColor: gameState.wrong.includes(tile) ? '#333' : (gameState.found.includes(tile) ? '#2ecc71' : '#fff'), 
-                                color: gameState.wrong.includes(tile) ? '#fff' : '#000'
-                            }}
-                        >
-                            {TILE_UNICODE[tile] || tile}
-                        </div>
-                    ))}
+                <div style={{ maxWidth: '700px', margin: '0 auto' }}>
+                    {['s', 'm', 'p'].slice(0, settings.suits).map(suit => {
+                        const suitTiles = (gameState.pool.length > 0 ? gameState.pool : getAllTiles(settings.suits))
+                            .filter(tile => tile.endsWith(suit));
+                        
+                        return (
+                            <div key={suit} style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                                {suitTiles.map(tile => {
+                                    const isWrong = gameState.wrong.includes(tile);
+                                    const isFound = gameState.found.includes(tile);
+                                    return (
+                                        <div 
+                                            key={tile} 
+                                            onClick={() => !isWrong && handleAction(tile)} 
+                                            style={{ 
+                                                ...tileStyle,
+                                                margin: '3px',
+                                                cursor: isWrong ? 'not-allowed' : 'pointer',
+                                                opacity: isWrong ? 0.3 : 1,
+                                                filter: isFound ? 'drop-shadow(0 0 8px #2ecc71)' : 'none'
+                                            }}
+                                        >
+                                            {TILE_UNICODE[tile] || tile}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    })}
                 </div>
             )}
 
@@ -158,7 +185,7 @@ export default function App() {
                             Base hand: <strong>{gameState.efficiency.initialShanten}-shanten</strong> ({gameState.hand.length - 1} tiles)
                         </p>
                         <p style={{ margin: '0 0 10px 0', color: '#666', fontSize: '14px' }}>
-                            Drew: <span style={{ background: '#fffacd', padding: '4px 10px', borderRadius: '4px', border: '1px solid #333', fontSize: '32px', display: 'inline-block', verticalAlign: 'middle' }}>{TILE_UNICODE[gameState.efficiency.drawnTile] || gameState.efficiency.drawnTile}</span>
+                            Drew: <span style={{ fontSize: '32px', display: 'inline-block', verticalAlign: 'middle', margin: '0 8px', filter: 'drop-shadow(0 0 4px #f39c12)' }}>{TILE_UNICODE[gameState.efficiency.drawnTile] || gameState.efficiency.drawnTile}</span>
                         </p>
                         <p style={{ margin: '0 0 15px 0', color: '#27ae60', fontSize: '14px', fontWeight: 'bold' }}>
                             Best achievable: {gameState.efficiency.bestShanten}-shanten
@@ -180,7 +207,7 @@ export default function App() {
                                 <div style={{ marginBottom: '8px' }}>
                                     <strong style={{ color: idx === 0 ? '#27ae60' : '#333', fontSize: '16px' }}>
                                         {idx === 0 ? '✓ Best Discard: ' : `#${idx + 1}: Discard `}
-                                        <span style={{ background: '#fff', padding: '4px 12px', borderRadius: '4px', border: '1px solid #333', fontSize: '32px', display: 'inline-block', verticalAlign: 'middle' }}>
+                                        <span style={{ fontSize: '32px', display: 'inline-block', verticalAlign: 'middle', margin: '0 8px' }}>
                                             {TILE_UNICODE[result.discard] || result.discard}
                                         </span>
                                     </strong>
@@ -198,11 +225,7 @@ export default function App() {
                                             {result.acceptedTiles.map((a, i) => (
                                                 <span key={i} style={{ 
                                                     display: 'inline-block',
-                                                    background: '#fff', 
-                                                    padding: '6px 10px', 
                                                     margin: '4px',
-                                                    borderRadius: '4px',
-                                                    border: '1px solid #ddd',
                                                     fontSize: '28px'
                                                 }}>
                                                     {TILE_UNICODE[a.tile] || a.tile} <span style={{ fontSize: '14px', color: '#666' }}>× {a.count}</span>
